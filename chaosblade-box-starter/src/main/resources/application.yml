@@ -92,3 +92,13 @@ spring:
     prefix: classpath:/build
   velocity:
     enabled: false
+
+ldap:
+  enabled: true
+  url: ldap://localhost:389
+  base: dc=example,dc=com
+  userDn: cn=admin,dc=example,dc=com
+  password: 123456
+
+public:
+  username: yintong

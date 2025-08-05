@@ -7,8 +7,10 @@ import com.alibaba.chaosblade.box.common.common.util.EncryptUtil;
 import com.alibaba.chaosblade.box.service.NamespaceService;
 import com.alibaba.chaosblade.box.service.UserService;
 import com.alibaba.chaosblade.box.service.model.user.UserRegisterRequest;
+import com.alibaba.chaosblade.box.service.auth.ldap.LdapAuthService;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,6 +35,15 @@ public class UserController extends SessionBaseController {
     @Autowired
     NamespaceService namespaceService;
 
+    @Autowired
+    private LdapAuthService ldapAuthService;
+
+    @Value("${ldap.enabled:true}")
+    boolean ldapEnabled;
+
+    @Value("${public.username}")
+    private String publicUserName;
+
     @ApiOperation(value = "用户注册")
     @PostMapping("UserRegister")
     public Response<Boolean> userRegister(@RequestBody UserRegisterRequest userRegisterRequest) throws NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, IOException, BadPaddingException, InvalidKeyException, InvalidKeySpecException {
@@ -47,10 +58,41 @@ public class UserController extends SessionBaseController {
         return Response.ofSuccess(true);
     }
 
+//    @ApiOperation(value = "用户登陆")
+//    @PostMapping("UserLogin")
+//    public Response<ChaosUser> userLogin(@RequestBody UserRegisterRequest userRegisterRequest) throws NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, IOException, BadPaddingException, InvalidKeySpecException, InvalidKeyException {
+//        ChaosUser user = userService.login(userRegisterRequest.getUserName(), EncryptUtil.reEncryptPassword(userRegisterRequest.getPassword()));
+//        refreshSession(user);
+//        userService.updateLastLoginTime(user.getId());
+//        return Response.ofSuccess(user);
+//    }
+
     @ApiOperation(value = "用户登陆")
     @PostMapping("UserLogin")
-    public Response<ChaosUser> userLogin(@RequestBody UserRegisterRequest userRegisterRequest) throws NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, IOException, BadPaddingException, InvalidKeySpecException, InvalidKeyException {
-        ChaosUser user = userService.login(userRegisterRequest.getUserName(), EncryptUtil.reEncryptPassword(userRegisterRequest.getPassword()));
+    public Response<ChaosUser> userLogin(@RequestBody UserRegisterRequest userRegisterRequest) throws Exception {
+        String username = userRegisterRequest.getUserName();
+        String password = userRegisterRequest.getPassword();
+
+        ChaosUser user = null;
+
+        if (ldapEnabled) {
+            boolean ldapOk = ldapAuthService.authenticate(username, password);
+            if (ldapOk) {
+                // LDAP认证通过，构造ChaosUser（可查本地库同步信息，也可直接new）
+                user = userService.getUserByUserId(publicUserName);
+                if (user == null) {
+                    // 如果本地没有，自动注册到本地
+                    user = userService.saveUser(username, username + "_ldapregister"); // 密码可为空或特殊标记
+                }
+            } else {
+                // LDAP认证失败，尝试本地认证
+                user = userService.login(username, EncryptUtil.reEncryptPassword(password));
+            }
+        } else {
+            // 只走本地认证
+            user = userService.login(username, EncryptUtil.reEncryptPassword(password));
+        }
+
         refreshSession(user);
         userService.updateLastLoginTime(user.getId());
         return Response.ofSuccess(user);
